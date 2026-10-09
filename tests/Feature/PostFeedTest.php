@@ -159,4 +159,184 @@ class PostFeedTest extends TestCase
         $this->assertModelExists($post);
         $this->assertSame('A post owned by another user', $post->fresh()->content);
     }
+
+    public function test_post_owner_can_edit_post_content_and_visibility(): void
+    {
+        $user = User::factory()->create();
+        $post = $user->posts()->create([
+            'content' => 'Original post',
+            'visibility' => 'public',
+        ]);
+
+        $this->actingAs($user)
+            ->patch(route('posts.update', $post), [
+                'content' => 'Updated post',
+                'visibility' => 'friends',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $post->id,
+            'user_id' => $user->id,
+            'content' => 'Updated post',
+            'visibility' => 'friends',
+        ]);
+    }
+
+    public function test_user_cannot_edit_another_users_post(): void
+    {
+        $owner = User::factory()->create();
+        $viewer = User::factory()->create();
+        $post = $owner->posts()->create([
+            'content' => 'Original post',
+            'visibility' => 'public',
+        ]);
+
+        $this->actingAs($viewer)
+            ->patch(route('posts.update', $post), [
+                'content' => 'Changed by someone else',
+                'visibility' => 'only_me',
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $post->id,
+            'content' => 'Original post',
+            'visibility' => 'public',
+        ]);
+    }
+
+    public function test_post_edit_rejects_invalid_visibility_without_saving_changes(): void
+    {
+        $user = User::factory()->create();
+        $post = $user->posts()->create([
+            'content' => 'Original post',
+            'visibility' => 'public',
+        ]);
+
+        $this->actingAs($user)
+            ->patch(route('posts.update', $post), [
+                'content' => 'Attempted update',
+                'visibility' => 'followers',
+            ])
+            ->assertSessionHasErrors('visibility');
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $post->id,
+            'content' => 'Original post',
+            'visibility' => 'public',
+        ]);
+    }
+
+    public function test_user_can_save_and_remove_a_post_from_their_saved_list(): void
+    {
+        $viewer = User::factory()->create();
+        $author = User::factory()->create();
+        $post = $author->posts()->create([
+            'content' => 'Save this post',
+            'visibility' => 'public',
+        ]);
+
+        $this->actingAs($viewer)
+            ->post(route('posts.saved.store', $post))
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('saved_posts', [
+            'user_id' => $viewer->id,
+            'post_id' => $post->id,
+        ]);
+
+        $this->actingAs($viewer)
+            ->get(route('saved-posts.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('SavedPosts/Index')
+                ->has('posts.data', 1)
+                ->where('posts.data.0.content', 'Save this post')
+                ->where('posts.data.0.is_saved', true)
+            );
+
+        $this->actingAs($viewer)
+            ->delete(route('posts.saved.destroy', $post))
+            ->assertRedirect();
+
+        $this->assertDatabaseMissing('saved_posts', [
+            'user_id' => $viewer->id,
+            'post_id' => $post->id,
+        ]);
+    }
+
+    public function test_user_cannot_save_a_post_they_cannot_view(): void
+    {
+        $viewer = User::factory()->create();
+        $author = User::factory()->create();
+        $post = $author->posts()->create([
+            'content' => 'Private post',
+            'visibility' => 'only_me',
+        ]);
+
+        $this->actingAs($viewer)
+            ->post(route('posts.saved.store', $post))
+            ->assertForbidden();
+
+        $this->assertDatabaseMissing('saved_posts', [
+            'user_id' => $viewer->id,
+            'post_id' => $post->id,
+        ]);
+    }
+
+    public function test_saved_posts_stop_appearing_when_the_viewer_loses_visibility(): void
+    {
+        $viewer = User::factory()->create();
+        $author = User::factory()->create();
+        $author->sentFriendRequests()->create([
+            'addressee_id' => $viewer->id,
+            'status' => 'accepted',
+        ]);
+        $post = $author->posts()->create([
+            'content' => 'Friends-only saved post',
+            'visibility' => 'friends',
+        ]);
+        $viewer->savedPosts()->attach($post);
+
+        $this->actingAs($viewer)
+            ->get(route('saved-posts.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('SavedPosts/Index')
+                ->has('posts.data', 1)
+            );
+
+        $author->sentFriendRequests()->firstOrFail()->update(['status' => 'rejected']);
+
+        $this->actingAs($viewer)
+            ->get(route('saved-posts.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('SavedPosts/Index')
+                ->has('posts.data', 0)
+            );
+    }
+
+    public function test_shared_post_page_only_shows_posts_the_viewer_can_see(): void
+    {
+        $owner = User::factory()->create();
+        $viewer = User::factory()->create();
+        $friendsPost = $owner->posts()->create([
+            'content' => 'Friends-only shared post',
+            'visibility' => 'friends',
+        ]);
+        $privatePost = $owner->posts()->create([
+            'content' => 'Private shared post',
+            'visibility' => 'only_me',
+        ]);
+
+        $this->actingAs($viewer)
+            ->get(route('posts.show', $friendsPost))
+            ->assertNotFound();
+
+        $this->actingAs($viewer)
+            ->get(route('posts.show', $privatePost))
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('posts', 2);
+    }
 }

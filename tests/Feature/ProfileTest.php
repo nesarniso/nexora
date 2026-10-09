@@ -39,6 +39,170 @@ class ProfileTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Profile/Edit')
                 ->where('profile.username', $user->profile->username)
+                ->where('privacy.location_visibility', 'public')
+                ->where('privacy.photos_visibility', 'public')
+                ->where('privacy.friends_visibility', 'public')
+            );
+    }
+
+    public function test_profile_privacy_settings_can_be_updated(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->patch(route('profile.privacy.update'), [
+                'location_visibility' => 'friends',
+                'photos_visibility' => 'only_me',
+                'friends_visibility' => 'friends',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect(route('profile.edit'));
+
+        $this->assertDatabaseHas('profiles', [
+            'id' => $user->profile->id,
+            'location_visibility' => 'friends',
+            'photos_visibility' => 'only_me',
+            'friends_visibility' => 'friends',
+        ]);
+    }
+
+    public function test_profile_privacy_settings_require_authentication(): void
+    {
+        $this->patch(route('profile.privacy.update'), [
+            'location_visibility' => 'public',
+            'photos_visibility' => 'public',
+            'friends_visibility' => 'public',
+        ])->assertRedirect(route('login'));
+    }
+
+    public function test_profile_privacy_settings_reject_unknown_audiences(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->patch(route('profile.privacy.update'), [
+                'location_visibility' => 'followers',
+                'photos_visibility' => 'everyone',
+                'friends_visibility' => 'private',
+            ])
+            ->assertSessionHasErrors([
+                'location_visibility' => 'Choose a valid audience for your location.',
+                'photos_visibility' => 'Choose a valid audience for photos on your profile.',
+                'friends_visibility' => 'Choose a valid audience for your friends list.',
+            ]);
+
+        $this->assertSame('public', $user->profile->fresh()->location_visibility);
+        $this->assertSame('public', $user->profile->fresh()->photos_visibility);
+        $this->assertSame('public', $user->profile->fresh()->friends_visibility);
+    }
+
+    public function test_profile_location_photos_and_friends_are_hidden_from_non_friends(): void
+    {
+        $owner = User::factory()->create();
+        $viewer = User::factory()->create();
+        $owner->profile->update([
+            'location' => 'Dhaka',
+            'location_visibility' => 'friends',
+            'photos_visibility' => 'friends',
+            'friends_visibility' => 'friends',
+        ]);
+        $friend = User::factory()->create(['name' => 'Private Friend']);
+        $owner->sentFriendRequests()->create([
+            'addressee_id' => $friend->id,
+            'status' => 'accepted',
+        ]);
+        $post = $owner->posts()->create([
+            'content' => 'Profile photo',
+            'visibility' => 'public',
+        ]);
+        $post->mediaAssets()->create([
+            'user_id' => $owner->id,
+            'type' => 'image',
+            'path' => 'media/private-profile-photo.jpg',
+            'mime_type' => 'image/jpeg',
+            'file_name' => 'private-profile-photo.jpg',
+            'size' => 1024,
+            'caption' => 'Private profile photo',
+            'status' => 'uploaded',
+        ]);
+
+        $this->actingAs($viewer)
+            ->get(route('users.section', ['user' => $owner, 'section' => 'photos']))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Profile/Show')
+                ->where('profile.location', null)
+                ->where('canViewPhotos', false)
+                ->has('photos', 0)
+                ->has('videos', 0)
+                ->where('sectionPhotos', null)
+                ->where('canViewFriendsList', false)
+                ->has('friends', 0)
+                ->where('sectionFriends', null)
+                ->where('friendCount', null)
+            );
+    }
+
+    public function test_profile_visibility_settings_allow_accepted_friends_and_the_owner(): void
+    {
+        $owner = User::factory()->create();
+        $friend = User::factory()->create();
+        $owner->profile->update([
+            'location' => 'Dhaka',
+            'location_visibility' => 'friends',
+            'photos_visibility' => 'friends',
+            'friends_visibility' => 'friends',
+        ]);
+        $owner->sentFriendRequests()->create([
+            'addressee_id' => $friend->id,
+            'status' => 'accepted',
+        ]);
+        $owner->posts()->create([
+            'content' => 'Visible profile photo',
+            'visibility' => 'public',
+        ])->mediaAssets()->create([
+            'user_id' => $owner->id,
+            'type' => 'image',
+            'path' => 'media/friends-profile-photo.jpg',
+            'mime_type' => 'image/jpeg',
+            'file_name' => 'friends-profile-photo.jpg',
+            'size' => 1024,
+            'caption' => 'Friends profile photo',
+            'status' => 'uploaded',
+        ]);
+
+        $this->actingAs($friend)
+            ->get(route('users.section', ['user' => $owner, 'section' => 'photos']))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Profile/Show')
+                ->where('profile.location', 'Dhaka')
+                ->where('canViewPhotos', true)
+                ->has('sectionPhotos.data', 1)
+                ->where('canViewFriendsList', true)
+                ->where('friendCount', 1)
+            );
+
+        $this->actingAs($friend)
+            ->get(route('users.section', ['user' => $owner, 'section' => 'friends']))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Profile/Show')
+                ->has('sectionFriends.data', 1)
+            );
+
+        $owner->profile->update([
+            'location_visibility' => 'only_me',
+            'photos_visibility' => 'only_me',
+            'friends_visibility' => 'only_me',
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('profile.show'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Profile/Show')
+                ->where('profile.location', 'Dhaka')
+                ->where('canViewPhotos', true)
+                ->has('galleryPhotos', 1)
+                ->where('canViewFriendsList', true)
+                ->where('friendCount', 1)
             );
     }
 

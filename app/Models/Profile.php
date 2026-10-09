@@ -15,6 +15,9 @@ class Profile extends Model
         'website',
         'avatar_url',
         'cover_url',
+        'location_visibility',
+        'photos_visibility',
+        'friends_visibility',
     ];
 
     public function user(): BelongsTo

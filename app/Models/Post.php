@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Post extends Model
 {
@@ -35,6 +36,11 @@ class Post extends Model
     public function mediaAssets(): MorphMany
     {
         return $this->morphMany(MediaAsset::class, 'attachable');
+    }
+
+    public function savedByUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'saved_posts')->withTimestamps();
     }
 
     public function scopeVisibleTo(Builder $query, ?User $viewer): Builder

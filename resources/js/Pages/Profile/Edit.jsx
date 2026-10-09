@@ -2,17 +2,19 @@ import SocialIcon from '@/Components/SocialIcon';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link } from '@inertiajs/react';
 import DeleteUserForm from './Partials/DeleteUserForm';
+import UpdateProfilePrivacyForm from './Partials/UpdateProfilePrivacyForm';
 import UpdatePasswordForm from './Partials/UpdatePasswordForm';
 import UpdateProfileInformationForm from './Partials/UpdateProfileInformationForm';
 
 const sections = [
     { label: 'Personal details', icon: 'people', href: '#personal-details' },
+    { label: 'Profile privacy', icon: 'lock', href: '#profile-privacy' },
     { label: 'Profile and cover photos', icon: 'photo', href: '#profile-photos' },
     { label: 'Password and security', icon: 'shield', href: '#password-security' },
     { label: 'Account deletion', icon: 'lock', href: '#account-control' },
 ];
 
-export default function Edit({ mustVerifyEmail, status, profile }) {
+export default function Edit({ mustVerifyEmail, status, profile, privacy }) {
     return (
         <AuthenticatedLayout>
             <Head title="Settings" />
@@ -58,6 +60,10 @@ export default function Edit({ mustVerifyEmail, status, profile }) {
                                 profile={profile}
                                 className="max-w-3xl"
                             />
+                        </section>
+
+                        <section id="profile-privacy" className="scroll-mt-20 rounded-xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)] sm:p-6">
+                            <UpdateProfilePrivacyForm privacy={privacy} />
                         </section>
 
                         <section id="password-security" className="scroll-mt-20 rounded-xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)] sm:p-6">

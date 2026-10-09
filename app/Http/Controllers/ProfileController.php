@@ -7,6 +7,7 @@ use App\Models\Friendship;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\PrivacyService;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use Throwable;
@@ -48,6 +50,36 @@ class ProfileController extends Controller
     {
         $viewer = $request->user();
         $user->loadMissing('profile');
+        $isOwnProfile = $viewer->is($user);
+        $friendship = $isOwnProfile ? null : Friendship::query()
+            ->where(function ($query) use ($viewer, $user): void {
+                $query->where('requester_id', $viewer->id)
+                    ->where('addressee_id', $user->id);
+            })
+            ->orWhere(function ($query) use ($viewer, $user): void {
+                $query->where('requester_id', $user->id)
+                    ->where('addressee_id', $viewer->id);
+            })
+            ->first(['requester_id', 'addressee_id', 'status']);
+        $areFriends = $isOwnProfile || $friendship?->status === 'accepted';
+        $canViewLocation = PrivacyService::canViewProfileField(
+            $viewer,
+            $user,
+            $user->profile->location_visibility,
+            $areFriends,
+        );
+        $canViewPhotos = PrivacyService::canViewProfileField(
+            $viewer,
+            $user,
+            $user->profile->photos_visibility,
+            $areFriends,
+        );
+        $canViewFriendsList = PrivacyService::canViewProfileField(
+            $viewer,
+            $user,
+            $user->profile->friends_visibility,
+            $areFriends,
+        );
         $posts = Post::query()
             ->visibleTo($viewer)
             ->whereBelongsTo($user)
@@ -65,31 +97,32 @@ class ProfileController extends Controller
             $post->mediaAssets->each(fn (MediaAsset $asset) => $asset->setAttribute('url', $asset->publicUrl()));
         });
 
-        $friendships = Friendship::query()
-            ->with(['requester.profile', 'addressee.profile'])
-            ->where('status', 'accepted')
-            ->where(function ($query) use ($user) {
-                $query->where('requester_id', $user->id)
-                    ->orWhere('addressee_id', $user->id);
-            })
-            ->latest()
-            ->limit(6)
-            ->get();
+        $friends = $canViewFriendsList
+            ? Friendship::query()
+                ->with(['requester.profile', 'addressee.profile'])
+                ->where('status', 'accepted')
+                ->where(function ($query) use ($user) {
+                    $query->where('requester_id', $user->id)
+                        ->orWhere('addressee_id', $user->id);
+                })
+                ->latest()
+                ->limit(6)
+                ->get()
+                ->map(function (Friendship $friendship) use ($user): array {
+                    $friend = $friendship->requester_id === $user->id
+                        ? $friendship->addressee
+                        : $friendship->requester;
 
-        $friends = $friendships->map(function (Friendship $friendship) use ($user) {
-            $friend = $friendship->requester_id === $user->id
-                ? $friendship->addressee
-                : $friendship->requester;
+                    return [
+                        'id' => $friend->id,
+                        'name' => $friend->name,
+                        'username' => $friend->profile?->username,
+                        'avatar_url' => $friend->profile?->avatar_url,
+                    ];
+                })
+            : collect();
 
-            return [
-                'id' => $friend->id,
-                'name' => $friend->name,
-                'username' => $friend->profile?->username,
-                'avatar_url' => $friend->profile?->avatar_url,
-            ];
-        });
-
-        $sectionFriends = $section === 'friends'
+        $sectionFriends = $section === 'friends' && $canViewFriendsList
             ? Friendship::query()
                 ->with(['requester.profile', 'addressee.profile'])
                 ->where('status', 'accepted')
@@ -113,7 +146,7 @@ class ProfileController extends Controller
                 })
             : null;
 
-        $photos = $posts->getCollection()
+        $photos = $canViewPhotos ? $posts->getCollection()
             ->flatMap(fn (Post $post) => $post->mediaAssets
                 ->where('type', 'image')
                 ->map(fn ($asset) => [
@@ -122,9 +155,9 @@ class ProfileController extends Controller
                     'caption' => $asset->caption,
                 ]))
             ->take(9)
-            ->values();
+            ->values() : collect();
 
-        $videos = $posts->getCollection()
+        $videos = $canViewPhotos ? $posts->getCollection()
             ->flatMap(fn (Post $post) => $post->mediaAssets
                 ->where('type', 'video')
                 ->map(fn ($asset) => [
@@ -132,19 +165,8 @@ class ProfileController extends Controller
                     'url' => $asset->publicUrl(),
                     'caption' => $asset->caption,
                 ]))
-            ->values();
+            ->values() : collect();
 
-        $isOwnProfile = $viewer->is($user);
-        $friendship = $isOwnProfile ? null : Friendship::query()
-            ->where(function ($query) use ($viewer, $user): void {
-                $query->where('requester_id', $viewer->id)
-                    ->where('addressee_id', $user->id);
-            })
-            ->orWhere(function ($query) use ($viewer, $user): void {
-                $query->where('requester_id', $user->id)
-                    ->where('addressee_id', $viewer->id);
-            })
-            ->first(['requester_id', 'addressee_id', 'status']);
         $galleryPhotos = $isOwnProfile
             ? MediaAsset::query()
                 ->whereBelongsTo($user)
@@ -162,7 +184,7 @@ class ProfileController extends Controller
                 ])
                 ->values()
             : collect();
-        $sectionPhotos = $section === 'photos'
+        $sectionPhotos = $section === 'photos' && $canViewPhotos
             ? MediaAsset::query()
                 ->whereBelongsTo($user)
                 ->where('type', 'image')
@@ -187,6 +209,8 @@ class ProfileController extends Controller
                 'created_at' => $user->created_at,
             ],
             'isOwnProfile' => $isOwnProfile,
+            'canViewPhotos' => $canViewPhotos,
+            'canViewFriendsList' => $canViewFriendsList,
             'friendship' => $friendship === null ? null : [
                 'status' => $friendship->status,
                 'isOutgoing' => $friendship->requester_id === $viewer->id,
@@ -194,7 +218,7 @@ class ProfileController extends Controller
             'profile' => [
                 'username' => $user->profile?->username,
                 'bio' => $user->profile?->bio,
-                'location' => $user->profile?->location,
+                'location' => $canViewLocation ? $user->profile?->location : null,
                 'website' => $user->profile?->website,
                 'avatar_url' => $user->profile?->avatar_url,
                 'cover_url' => $user->profile?->cover_url,
@@ -206,13 +230,15 @@ class ProfileController extends Controller
             'sectionFriends' => $sectionFriends,
             'videos' => $videos,
             'friends' => $friends,
-            'friendCount' => Friendship::query()
-                ->where('status', 'accepted')
-                ->where(function ($query) use ($user) {
-                    $query->where('requester_id', $user->id)
-                        ->orWhere('addressee_id', $user->id);
-                })
-                ->count(),
+            'friendCount' => $canViewFriendsList
+                ? Friendship::query()
+                    ->where('status', 'accepted')
+                    ->where(function ($query) use ($user) {
+                        $query->where('requester_id', $user->id)
+                            ->orWhere('addressee_id', $user->id);
+                    })
+                    ->count()
+                : null,
             'followingCount' => $user->following()->count(),
             'followerCount' => $user->followers()->count(),
         ]);
@@ -226,6 +252,11 @@ class ProfileController extends Controller
         return Inertia::render('Profile/Edit', [
             'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
             'profile' => $request->user()->profile,
+            'privacy' => [
+                'location_visibility' => $request->user()->profile->location_visibility,
+                'photos_visibility' => $request->user()->profile->photos_visibility,
+                'friends_visibility' => $request->user()->profile->friends_visibility,
+            ],
             'status' => session('status'),
         ]);
     }
@@ -286,6 +317,23 @@ class ProfileController extends Controller
         });
 
         return Redirect::route('profile.edit');
+    }
+
+    public function updatePrivacy(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'location_visibility' => ['required', Rule::in(['public', 'friends', 'only_me'])],
+            'photos_visibility' => ['required', Rule::in(['public', 'friends', 'only_me'])],
+            'friends_visibility' => ['required', Rule::in(['public', 'friends', 'only_me'])],
+        ], [
+            'location_visibility.in' => 'Choose a valid audience for your location.',
+            'photos_visibility.in' => 'Choose a valid audience for photos on your profile.',
+            'friends_visibility.in' => 'Choose a valid audience for your friends list.',
+        ]);
+
+        $request->user()->profile()->firstOrFail()->fill($validated)->save();
+
+        return Redirect::route('profile.edit')->with('status', 'privacy-updated');
     }
 
     public function updatePhotos(Request $request): RedirectResponse
