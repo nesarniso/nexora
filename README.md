@@ -236,6 +236,7 @@ This is a Laravel + Inertia starter project configured for the Nexora social pla
 - Redis support enabled in dependencies
 - Current active phase: Phase 5 — Trust & safety and admin
 - Group MVP foundations are in place; the admin control plane includes protected access, platform overview, user search, account suspension, post/group management, a global group-report queue, and admin audit history
+- Profile privacy settings control who can see a user's location, profile photos/videos section, and friends list (everyone, friends, or only me); post visibility continues to govern media attached to timeline posts
 - Phase 5 admin controls include security event review for failed and rate-limited logins, analytics, site-level branding (logo and browser icon), registration and announcement settings, and streamed CSV audit export
 
 ### Phase 4: Content & media foundation

@@ -14,7 +14,7 @@ function SectionTitle({ children, href }) {
     );
 }
 
-export default function Show({ user, profile, posts, photos = [], galleryPhotos = [], videos = [], friends = [], sectionFriends, sectionPhotos, section = 'posts', friendCount = 0, followingCount = 0, followerCount = 0, isOwnProfile = false, friendship = null }) {
+export default function Show({ user, profile, posts, photos = [], galleryPhotos = [], videos = [], friends = [], sectionFriends, sectionPhotos, section = 'posts', friendCount = 0, followingCount = 0, followerCount = 0, isOwnProfile = false, friendship = null, canViewPhotos = true, canViewFriendsList = true }) {
     const { errors } = usePage().props;
     const [visibilityFilter, setVisibilityFilter] = useState('all');
     const [previewPhoto, setPreviewPhoto] = useState(null);
@@ -92,9 +92,9 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
     const tabs = [
         { label: 'Posts', href: profileUrl, active: section === 'posts' },
         { label: 'About', href: sectionUrl('about'), active: section === 'about' },
-        { label: 'Friends', href: sectionUrl('friends'), count: friendCount, active: section === 'friends' },
-        ...(videos.length > 0 ? [{ label: 'Reels', href: `${profileUrl}#reels`, active: false }] : []),
-        { label: 'Photos', href: sectionUrl('photos'), active: section === 'photos' },
+        ...(canViewFriendsList ? [{ label: 'Friends', href: sectionUrl('friends'), count: friendCount, active: section === 'friends' }] : []),
+        ...(canViewPhotos && videos.length > 0 ? [{ label: 'Reels', href: `${profileUrl}#reels`, active: false }] : []),
+        ...(canViewPhotos ? [{ label: 'Photos', href: sectionUrl('photos'), active: section === 'photos' }] : []),
     ];
 
     const joinedDate = user.created_at
@@ -350,7 +350,7 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
                             </div>
                         </section>
 
-                        {photos.length > 0 && (
+                        {canViewPhotos && photos.length > 0 && (
                             <section id="photos" className="scroll-mt-20 rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                                 <SectionTitle href={sectionUrl('photos')}>Photos</SectionTitle>
                                 <div className="mt-3 grid grid-cols-3 gap-1 overflow-hidden rounded-lg">
@@ -368,14 +368,22 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
                                 </div>
                             </section>
                         )}
-                        {photos.length === 0 && (
+                        {canViewPhotos && photos.length === 0 && (
                             <section id="photos" className="scroll-mt-20 rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                                 <SectionTitle>Photos</SectionTitle>
                                 <p className="mt-3 rounded-lg bg-[#f0f2f5] px-3 py-6 text-center text-sm text-[#65676b]">Photos shared in posts will appear here.</p>
                             </section>
                         )}
 
-                        <section id="friends" className="scroll-mt-20 rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                        {!canViewPhotos && (
+                            <section id="photos" className="scroll-mt-20 rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                                <SectionTitle>Photos</SectionTitle>
+                                <p className="mt-3 rounded-lg bg-[#f0f2f5] px-3 py-6 text-center text-sm text-[#65676b]">Photos and videos on this profile are private.</p>
+                            </section>
+                        )}
+
+                        {canViewFriendsList ? (
+                            <section id="friends" className="scroll-mt-20 rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                             <SectionTitle href={sectionUrl('friends')}>Friends</SectionTitle>
                             <p className="mt-1 text-[15px] text-[#65676b]">{friendCount} friends</p>
                             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -390,7 +398,13 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
                                     </Link>
                                 ))}
                             </div>
-                        </section>
+                            </section>
+                        ) : (
+                            <section id="friends" className="scroll-mt-20 rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                                <SectionTitle>Friends</SectionTitle>
+                                <p className="mt-3 rounded-lg bg-[#f0f2f5] px-3 py-6 text-center text-sm text-[#65676b]">This friends list is private.</p>
+                            </section>
+                        )}
                     </div>
 
                     <section id="posts" className="scroll-mt-20 space-y-4">
@@ -528,7 +542,7 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
                             </section>
                         )}
 
-                        {section === 'friends' && (
+                        {section === 'friends' && canViewFriendsList && (
                             <section className="rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)] sm:p-6">
                                 <div className="flex items-center justify-between gap-3">
                                     <h2 className="text-[20px] font-bold text-[#1c1e21]">Friends</h2>
@@ -567,7 +581,14 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
                             </section>
                         )}
 
-                        {section === 'photos' && (
+                        {section === 'friends' && !canViewFriendsList && (
+                            <section className="rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)] sm:p-6">
+                                <h2 className="text-[20px] font-bold text-[#1c1e21]">Friends</h2>
+                                <p className="mt-4 rounded-lg bg-[#f0f2f5] px-4 py-8 text-center text-sm text-[#65676b]">This friends list is private.</p>
+                            </section>
+                        )}
+
+                        {section === 'photos' && canViewPhotos && (
                             <section className="rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)] sm:p-6">
                                 <h2 className="text-[20px] font-bold text-[#1c1e21]">Photos</h2>
                                 {sectionPhotos?.data?.length > 0 ? (
@@ -587,6 +608,7 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
                                 ) : (
                                     <p className="mt-4 rounded-lg bg-[#f0f2f5] px-4 py-8 text-center text-sm text-[#65676b]">No photos to show yet.</p>
                                 )}
+
                                 {sectionPhotos?.links?.length > 3 && (
                                     <nav aria-label="Photo pages" className="mt-4 flex flex-wrap justify-center gap-2">
                                         {sectionPhotos.links.map((link) => link.url && (
@@ -601,6 +623,13 @@ export default function Show({ user, profile, posts, photos = [], galleryPhotos 
                                         ))}
                                     </nav>
                                 )}
+                            </section>
+                        )}
+
+                        {section === 'photos' && !canViewPhotos && (
+                            <section className="rounded-lg bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.12)] sm:p-6">
+                                <h2 className="text-[20px] font-bold text-[#1c1e21]">Photos</h2>
+                                <p className="mt-4 rounded-lg bg-[#f0f2f5] px-4 py-8 text-center text-sm text-[#65676b]">Photos and videos on this profile are private.</p>
                             </section>
                         )}
                     </div>

@@ -105,6 +105,7 @@ class PostController extends Controller
                 'comments.user.profile',
                 'reactions' => fn ($query) => $query->where('user_id', $user->id),
             ])
+            ->withExists(['savedByUsers as is_saved' => fn ($query) => $query->where('users.id', $user->id)])
             ->withCount(['comments', 'reactions'])
             ->latest()
             ->paginate(10);
@@ -134,6 +135,32 @@ class PostController extends Controller
         ]);
     }
 
+    public function show(Request $request, Post $post): Response
+    {
+        $user = $request->user();
+        abort_unless(Post::query()->visibleTo($user)->whereKey($post->id)->exists(), 404);
+
+        $post = Post::query()
+            ->visibleTo($user)
+            ->with([
+                'user.profile',
+                'mediaAssets',
+                'comments' => fn ($query) => $query->latest()->limit(3),
+                'comments.user.profile',
+                'reactions' => fn ($query) => $query->where('user_id', $user->id),
+            ])
+            ->withExists(['savedByUsers as is_saved' => fn ($query) => $query->where('users.id', $user->id)])
+            ->withCount(['comments', 'reactions'])
+            ->findOrFail($post->id);
+
+        $post->mediaAssets->each(fn (MediaAsset $asset) => $asset->setAttribute('url', $asset->publicUrl()));
+
+        return Inertia::render('Posts/Show', [
+            'post' => $post,
+            'isOwner' => $post->user_id === $user->id,
+        ]);
+    }
+
     public function store(Request $request, MediaService $mediaService): RedirectResponse
     {
         $validated = $request->validate([
@@ -155,6 +182,20 @@ class PostController extends Controller
         }
 
         return redirect()->route('dashboard');
+    }
+
+    public function update(Request $request, Post $post): RedirectResponse
+    {
+        abort_unless($post->user_id === $request->user()->id, 403);
+
+        $validated = $request->validate([
+            'content' => ['nullable', 'string', 'max:2000'],
+            'visibility' => ['required', 'string', 'in:public,friends,only_me'],
+        ]);
+
+        $post->update($validated);
+
+        return back();
     }
 
     public function destroy(Request $request, Post $post): RedirectResponse

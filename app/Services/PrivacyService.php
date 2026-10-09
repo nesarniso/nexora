@@ -9,6 +9,19 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 
 class PrivacyService
 {
+    public static function canViewProfileField(?User $viewer, User $owner, string $visibility, bool $areFriends): bool
+    {
+        if ($viewer?->is($owner)) {
+            return true;
+        }
+
+        return match ($visibility) {
+            'public' => true,
+            'friends' => $viewer !== null && $areFriends,
+            default => false,
+        };
+    }
+
     public static function canViewPost(?User $viewer, Post $post): bool
     {
         if ($viewer && $viewer->id === $post->user_id) {
